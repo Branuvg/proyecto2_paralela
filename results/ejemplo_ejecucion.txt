@@ -1,0 +1,13 @@
+PROC,0,105472,1.826035
+PROC,1,105472,1.817154
+PROC,2,104857,1.810201
+PROC,3,104448,1.810856
+Key = 419430
+
+La programación paralela surge de una necesidad sencilla: resolver problemas grandes en menos tiempo. Durante décadas, los fabricantes lograron programas más rápidos aumentando la frecuencia de los procesadores, pero ese camino se agotó por límites de consumo de energía y de calor. La alternativa fue colocar varios núcleos en un mismo chip y conectar muchas máquinas entre sí, de modo que el trabajo se reparta entre todos ellos.
+Existen dos grandes modelos para aprovechar ese hardware. En el modelo de memoria compartida, varios hilos de ejecución leen y escriben las mismas variables dentro de una sola computadora. Herramientas como OpenMP facilitan este estilo. En el modelo de memoria distribuida, en cambio, cada proceso tiene su propio espacio de direcciones y la única forma de colaborar es enviar y recibir mensajes. Este es el paradigma que estandariza MPI, una especificación que cuenta con implementaciones libres como OpenMPI.
+Para medir si una solución paralela realmente vale la pena se utilizan dos métricas. El speedup compara el tiempo de la versión secuencial contra el de la versión con varios procesos, y la eficiencia divide ese valor entre el número de procesos usados. En el caso ideal, cuatro procesos resolverían el problema cuatro veces más rápido, pero en la práctica la comunicación, las partes que no se pueden dividir y el desbalance de carga reducen esa ganancia. La ley de Amdahl explica que la fracción secuencial de un programa impone un límite máximo al beneficio que se obtiene.
+Un ejemplo claro de problema que se paraleliza bien es la búsqueda por fuerza bruta de una llave de cifrado. Cada candidato se puede probar de manera independiente, así que basta dividir el espacio de llaves entre los procesos. Sin embargo, el reparto importa mucho. Si se asignan bloques contiguos y la llave buscada está en el primer bloque, un solo proceso hará todo el trabajo útil mientras los demás esperan. Si, por el contrario, se reparten las llaves de forma intercalada, la carga se distribuye de manera más pareja y el tiempo resulta más consistente sin importar dónde se encuentre la respuesta.
+
+
+CSV,4,cyclic,419430,419430,1.826035
