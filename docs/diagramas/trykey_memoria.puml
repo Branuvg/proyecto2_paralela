@@ -1,0 +1,25 @@
+@startuml trykey_memoria
+title tryKey: estado de la memoria
+skinparam shadowing false
+skinparam defaultFontName Calibri
+skinparam rectangle {
+  BackgroundColor #F2F2F2
+  BorderColor #808080
+}
+skinparam ArrowColor #404040
+
+rectangle "cipher (main) - NUNCA se modifica\n[ bloque 1 | bloque 2 | ... | bloque n ]  bytes cifrados" as C
+rectangle "temp (pila de tryKey) tras memcpy\n[ copia exacta de cipher ]  + temp[len] = 0" as T1
+rectangle "temp tras decrypt(i)\nllave correcta: texto original (contiene la frase)\nllave incorrecta: bytes aleatorios" as T2
+rectangle "strstr(temp, search)\nbusca la frase clave en temp\nresultado: puntero (acierto) o NULL" as S
+
+C -down-> T1 : memcpy(temp, ciph, len)
+T1 -down-> T2 : decrypt: DES sobre temp en sitio
+T2 -down-> S : strstr
+note right of T1
+  Si no hubiera copia, decrypt
+  destruiría cipher y la
+  siguiente llave descifraría
+  basura.
+end note
+@enduml

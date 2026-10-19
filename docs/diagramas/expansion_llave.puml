@@ -1,0 +1,29 @@
+@startuml expansion_llave
+title encrypt/decrypt: de la llave de 56 bits a la llave DES de 8 bytes
+skinparam shadowing false
+skinparam defaultFontName Calibri
+skinparam activity {
+  BackgroundColor #F2F2F2
+  BorderColor #808080
+}
+skinparam ArrowColor #404040
+
+start
+:key (56 bits útiles);
+:k = 0;
+repeat :key = key << 1;
+:byte i de k = bits 1..7 de ese byte en key
+(máscara 0xFE << i*8)
+toma los bits 7i ... 7i+6 de la llave original;
+repeat while (i < 8?) is (sí) not (no)
+:des_setparity(&k)
+bit 0 de cada byte = paridad impar;
+:ecb_crypt(&k, buffer, largo, DES_ENCRYPT o DES_DECRYPT)
+DES modo ECB, el buffer se modifica en sitio;
+stop
+note right
+  Ejemplo key = 1
+  tras el bucle:   02 00 00 00 00 00 00 00
+  tras paridad:    02 01 01 01 01 01 01 01
+end note
+@enduml

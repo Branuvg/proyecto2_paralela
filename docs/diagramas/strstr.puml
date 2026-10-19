@@ -1,0 +1,27 @@
+@startuml strstr
+title strstr(haystack, needle)
+skinparam shadowing false
+skinparam defaultFontName Calibri
+skinparam activity {
+  BackgroundColor #F2F2F2
+  BorderColor #808080
+}
+skinparam ArrowColor #404040
+
+start
+:p = inicio de haystack;
+while (¿*p distinto de fin de cadena?) is (sí)
+  if (¿los m caracteres desde p\ncoinciden con needle?) then (sí)
+    :devolver p (puntero a la primera aparición);
+    stop
+  else (no)
+    :p = p + 1;
+  endif
+endwhile (no, llegó al fin del texto)
+:devolver NULL;
+stop
+note right
+  Con llave incorrecta el texto es basura:
+  un byte 0 temprano corta la búsqueda.
+end note
+@enduml

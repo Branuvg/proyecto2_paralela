@@ -1,0 +1,36 @@
+@startuml main_mpi
+title main: búsqueda de la llave con MPI
+skinparam shadowing false
+skinparam defaultFontName Calibri
+skinparam activity {
+  BackgroundColor #F2F2F2
+  BorderColor #808080
+}
+skinparam ArrowColor #404040
+
+start
+:Cifrar eltexto con the_key -> cipher;
+:MPI_Init, MPI_Comm_size (N), MPI_Comm_rank (id);
+:range = 2^56 / N
+mylower = range * id
+myupper = range * (id+1) - 1  (último proceso: 2^56);
+:MPI_Irecv(&found, ...) queda abierto;
+while (¿i < myupper?) is (sí)
+  :MPI_Test(&req, &ready);
+  if (¿ready?) then (sí, alguien avisó)
+    break
+  endif
+  if (¿tryKey(i)?) then (sí)
+    :found = i;
+    :MPI_Send(found) a todos los procesos;
+    break
+  endif
+  :i = i + 1;
+endwhile
+if (¿id == 0?) then (sí)
+  :MPI_Wait(&req);
+  :decrypt(found, cipher) e imprimir llave y texto;
+endif
+:MPI_Finalize;
+stop
+@enduml

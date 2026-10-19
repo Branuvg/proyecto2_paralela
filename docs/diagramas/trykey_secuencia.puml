@@ -1,0 +1,29 @@
+@startuml trykey_secuencia
+title tryKey(key, ciph, len): secuencia de llamadas
+skinparam shadowing false
+skinparam defaultFontName Calibri
+skinparam ParticipantBackgroundColor #F2F2F2
+skinparam ParticipantBorderColor #808080
+skinparam ArrowColor #404040
+
+participant "main (bucle)" as M
+participant tryKey
+participant memcpy
+participant decrypt
+participant ecb_crypt
+participant strstr
+
+M -> tryKey : tryKey(i, cipher, len)
+tryKey -> tryKey : char temp[len+1]
+tryKey -> memcpy : memcpy(temp, ciph, len)
+memcpy --> tryKey : temp = copia del cifrado
+tryKey -> tryKey : temp[len] = 0
+tryKey -> decrypt : decrypt(i, temp, len)
+decrypt -> decrypt : expandir llave y des_setparity
+decrypt -> ecb_crypt : ecb_crypt(k, temp, 16, DES_DECRYPT)
+ecb_crypt --> decrypt : temp descifrado en sitio
+decrypt --> tryKey
+tryKey -> strstr : strstr(temp, search)
+strstr --> tryKey : puntero o NULL
+tryKey --> M : 1 si != NULL, 0 si NULL
+@enduml
