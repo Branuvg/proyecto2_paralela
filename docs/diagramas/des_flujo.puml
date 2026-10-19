@@ -1,0 +1,49 @@
+@startuml des_flujo
+title Algoritmo DES - cifrado y descifrado de un bloque de 64 bits
+skinparam shadowing false
+skinparam defaultFontName Calibri
+skinparam activity {
+  BackgroundColor #F2F2F2
+  BorderColor #808080
+}
+skinparam ArrowColor #404040
+
+start
+:Entrada: bloque de 64 bits y llave de 64 bits
+(56 útiles + 8 de paridad);
+
+partition "Generación de subllaves" {
+  :PC-1: eliminar bits de paridad y permutar
+  (64 bits -> 56 bits);
+  :Dividir en C0 (28 bits) y D0 (28 bits);
+  repeat :Rotar C y D a la izquierda\n(1 bit en rondas 1, 2, 9, 16; 2 bits en las demás);
+  :PC-2: elegir y permutar 48 bits
+  => subllave Ki;
+  repeat while (i < 16?) is (sí) not (no)
+  :Se obtienen K1 ... K16 (48 bits cada una);
+}
+
+partition "Procesamiento del bloque" {
+  :Permutación inicial IP;
+  :Dividir en L0 (32 bits) y R0 (32 bits);
+  if (¿Operación?) then (cifrar)
+    :Usar subllaves en orden K1, K2, ..., K16;
+  else (descifrar)
+    :Usar subllaves en orden K16, K15, ..., K1;
+  endif
+  repeat :L(i) = R(i-1);
+  :R(i) = L(i-1) XOR f(R(i-1), Ki);
+  repeat while (i < 16?) is (sí) not (no)
+  :Intercambiar mitades: salida R16 L16;
+  :Permutación final FP (inversa de IP);
+}
+
+:Salida: bloque de 64 bits
+(texto cifrado o texto plano);
+stop
+
+note right
+  Texto largo: se repite por cada bloque
+  de 8 bytes (modo ECB, ecb_crypt).
+end note
+@enduml

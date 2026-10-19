@@ -1,0 +1,25 @@
+@startuml des_funcion_f
+title Función f de DES: f(R, Ki)
+skinparam shadowing false
+skinparam defaultFontName Calibri
+skinparam activity {
+  BackgroundColor #F2F2F2
+  BorderColor #808080
+}
+skinparam ArrowColor #404040
+
+start
+:R (32 bits);
+:Expansión E
+(32 bits -> 48 bits, se duplican algunos bits);
+:XOR con la subllave Ki (48 bits);
+:Dividir en 8 grupos de 6 bits;
+:S-boxes S1 ... S8
+(cada grupo de 6 bits -> 4 bits)
+fila = primer y último bit
+columna = 4 bits centrales;
+:Concatenar las 8 salidas (32 bits);
+:Permutación P (32 bits);
+:Resultado de f (32 bits);
+stop
+@enduml
