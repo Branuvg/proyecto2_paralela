@@ -1,0 +1,4 @@
+# Todo se compila y ejecuta en Linux/WSL/macOS: forzar LF aunque se clone en Windows
+# (con CRLF los scripts fallan en bash y data/texto.txt cambia el texto cifrado)
+* text=auto eol=lf
+*.png binary
