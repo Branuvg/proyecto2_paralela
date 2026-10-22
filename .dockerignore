@@ -1,0 +1,10 @@
+# No enviar al contexto de build lo que la imagen no necesita
+.git
+build/
+results/
+docs/
+datapdf/
+scripts/
+*.md
+*.docx
+bruteforce_.c
