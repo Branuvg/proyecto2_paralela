@@ -3,7 +3,7 @@
 build/
 results/
 docs/
-datapdf/
+ins/
 scripts/
 *.md
 *.docx
