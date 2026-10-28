@@ -1,10 +1,17 @@
 /*
  * bruteforce_fix.c - version corregida e instrumentada de bruteforce_.c
  *
- * Uso: mpirun -np N bruteforce_fix <llave> <archivo_texto> "<frase clave>" [block|cyclic] [bits]
+ * Uso (modo propio, Parte 1/2 - cifra el texto y luego lo busca):
+ *   mpirun -np N bruteforce_fix <llave> <archivo_texto> "<frase clave>" [block|cyclic] [bits]
+ *
+ * Uso (modo cruzado, Parte 3 - el texto ya viene cifrado por otro equipo):
+ *   mpirun -np N bruteforce_fix --b64 <archivo.b64> "<frase clave>" [block|cyclic] [bits]
+ *
  *   bits    : (opcional, default 56) tamano del espacio de busqueda 2^bits, para experimentos
  *             a escala donde el reparto en bloques sigue siendo significativo
- *   llave   : entero en [0, 2^56) con el que se cifra el texto
+ *   llave   : entero en [0, 2^56) con el que se cifra el texto (solo modo propio)
+ *   --b64   : <archivo.b64> es el ciphertext de otro equipo en base64 (una linea);
+ *             no se cifra nada, solo se decodifica y se busca la llave que lo descifra
  *   block   : cada proceso recibe un bloque contiguo del espacio (como el original)
  *   cyclic  : el proceso id prueba id, id+N, id+2N, ... (reparto intercalado)
  *
@@ -15,6 +22,8 @@
  *   - fin limpio si nadie encuentra la llave (no hay MPI_Wait colgado)
  *   - MPI_Test cada TEST_EVERY llaves, no en cada una
  *   - medicion con MPI_Wtime, llaves probadas y tiempo por proceso
+ *   - modo --b64 (Parte 3): lee y decodifica el ciphertext de otro equipo en vez
+ *     de cifrar un texto propio (ver docs/10-descifrado-cruzado.md)
  */
 #include <string.h>
 #include <stdio.h>
@@ -71,6 +80,43 @@ static char *read_file(const char *path, int *n) {
   return buf;
 }
 
+/* valor 0-63 de un caracter base64, o -1 si no es base64 (incluye '=', saltos
+ * de linea y espacios, que simplemente se ignoran al decodificar) */
+static int b64_val(unsigned char c) {
+  if (c >= 'A' && c <= 'Z') return c - 'A';
+  if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+  if (c >= '0' && c <= '9') return c - '0' + 52;
+  if (c == '+') return 62;
+  if (c == '/') return 63;
+  return -1;
+}
+
+/* Lee un archivo de texto en base64 (como lo publican otros equipos) y
+ * devuelve el ciphertext decodificado, recortado al multiplo de 8 completo
+ * (ecb_crypt necesita el largo exacto en bloques de 8 bytes). */
+static char *read_b64_file(const char *path, int *n) {
+  int rawlen = 0;
+  char *raw = read_file(path, &rawlen);
+  if (!raw) return NULL;
+  unsigned char *out = malloc(rawlen);     /* cota superior, nunca se excede */
+  int outlen = 0;
+  unsigned int acc = 0;                    /* unsigned: evita overflow con signo */
+  int accbits = 0;
+  for (int i = 0; i < rawlen; i++) {
+    int v = b64_val((unsigned char)raw[i]);
+    if (v < 0) continue;
+    acc = (acc << 6) | (unsigned int)v;
+    accbits += 6;
+    if (accbits >= 8) {
+      accbits -= 8;
+      out[outlen++] = (char)((acc >> accbits) & 0xFF);
+    }
+  }
+  free(raw);
+  *n = (outlen / 8) * 8;                   /* descarta un bloque incompleto, si hubiera */
+  return (char *)out;
+}
+
 int main(int argc, char *argv[]) {
   MPI_Init(&argc, &argv);
   MPI_Comm comm = MPI_COMM_WORLD;
@@ -78,32 +124,49 @@ int main(int argc, char *argv[]) {
   MPI_Comm_size(comm, &N);
   MPI_Comm_rank(comm, &id);
 
-  if (argc < 4) {
+  int is_b64 = (argc > 1 && strcmp(argv[1], "--b64") == 0);
+
+  if (argc < 4 || (is_b64 && argc < 4)) {
     if (id == 0)
-      fprintf(stderr, "Uso: %s <llave> <archivo_texto> \"<frase>\" [block|cyclic]\n", argv[0]);
+      fprintf(stderr,
+        "Uso: %s <llave> <archivo_texto> \"<frase>\" [block|cyclic] [bits]\n"
+        "  o: %s --b64 <archivo.b64> \"<frase>\" [block|cyclic] [bits]\n",
+        argv[0], argv[0]);
     MPI_Finalize();
     return 1;
   }
 
   int bits = (argc > 5) ? atoi(argv[5]) : 56;
   const unsigned long upper = 1UL << bits;          /* espacio de llaves (DES: 2^56) */
-  unsigned long the_key = strtoul(argv[1], NULL, 10);
+  unsigned long the_key = is_b64 ? 0 : strtoul(argv[1], NULL, 10);
   search = argv[3];
   int cyclic = (argc > 4 && strcmp(argv[4], "cyclic") == 0);
 
-  int textlen = 0;
-  char *text = read_file(argv[2], &textlen);
-  if (!text || the_key >= upper) {
-    if (id == 0) fprintf(stderr, "Error: archivo ilegible o llave fuera de [0, 2^56)\n");
-    MPI_Finalize();
-    return 1;
+  int ciphlen = 0;
+  char *cipher;
+  if (is_b64) {
+    /* Parte 3: el texto ya viene cifrado por otro equipo, solo se decodifica */
+    cipher = read_b64_file(argv[2], &ciphlen);
+    if (!cipher || ciphlen == 0) {
+      if (id == 0) fprintf(stderr, "Error: no se pudo leer/decodificar %s\n", argv[2]);
+      MPI_Finalize();
+      return 1;
+    }
+  } else {
+    int textlen = 0;
+    char *text = read_file(argv[2], &textlen);
+    if (!text || the_key >= upper) {
+      if (id == 0) fprintf(stderr, "Error: archivo ilegible o llave fuera de [0, 2^56)\n");
+      MPI_Finalize();
+      return 1;
+    }
+    ciphlen = (textlen + 7) / 8 * 8;                /* multiplo de 8 */
+    cipher = malloc(ciphlen + 1);
+    memcpy(cipher, text, ciphlen);
+    encrypt(the_key, cipher, ciphlen);
+    free(text);
   }
-  int ciphlen = (textlen + 7) / 8 * 8;              /* multiplo de 8 */
-
-  char *cipher = malloc(ciphlen + 1);
-  memcpy(cipher, text, ciphlen);
   cipher[ciphlen] = 0;
-  encrypt(the_key, cipher, ciphlen);
 
   unsigned long mylower, myupper, step;
   if (cyclic) {
