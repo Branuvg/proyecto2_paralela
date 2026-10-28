@@ -1,0 +1,32 @@
+# Capa opcional de Tailscale sobre mpi-cluster-image.
+# Sirve para unir contenedores de computadoras que no comparten la misma red
+# fisica, o donde --network host de Docker Desktop no expone la LAN real
+# (ver docs/08-cluster.md, "Hallazgos y riesgos" -> Docker Desktop en Windows/Mac
+# no comparte la tarjeta de red fisica con el contenedor aunque "Enable host
+# networking" este activo).
+#
+# Construir primero la imagen base y luego esta:
+#   docker build -t mpi-cluster-image .
+#   docker build -t mpi-cluster-ts -f Dockerfile.tailscale .
+FROM mpi-cluster-image
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# curl/ca-certificates para el instalador de Tailscale; iproute2/iptables
+# porque tailscaled los necesita para armar su interfaz tun y las reglas.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+        iproute2 \
+        iptables \
+    && curl -fsSL https://tailscale.com/install.sh | sh \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY scripts/cluster/entrypoint-ts.sh ./entrypoint-ts.sh
+# Por si se construye desde Windows y el archivo trae CRLF (ver bitacora del
+# equipo que probo esto: con CRLF el contenedor no arranca).
+RUN sed -i 's/\r$//' ./entrypoint-ts.sh && chmod +x ./entrypoint-ts.sh
+
+ENTRYPOINT ["/app/entrypoint-ts.sh"]
+CMD ["/bin/bash"]

@@ -4,7 +4,10 @@ build/
 results/
 docs/
 ins/
-scripts/
+scripts/*
+!scripts/cluster
+scripts/cluster/*
+!scripts/cluster/entrypoint-ts.sh
 *.md
 *.docx
 bruteforce_.c
