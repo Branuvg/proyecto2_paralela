@@ -29,38 +29,68 @@ mpirun -np N bruteforce_fix --b64 <archivo.b64> "<frase clave>" [block|cyclic] [
 
 **Descartado:** el armado de llave *original* (sin corregir, `0xFE` con `key` tipo `int`/`long`, el mismo
 bug documentado en `docs/01-hallazgos-codigo.md`). Se probó explícitamente en `[0, 16 000 000)` y no
-aparece, así que el grupo cifró con el armado **corregido** (igual que la mayoría, según también reportó
-un grupo compañero que pasó por el mismo problema con otro texto).
+aparece.
 
-**Estado de la búsqueda:** en progreso al momento de escribir esto. Se cubrieron sin éxito las primeras
-~300 millones de llaves del espacio completo (2^56) en reparto cíclico con 16 procesos locales — muy por
-encima de las llaves "amigables" de otros grupos conocidos (3 141 592, 4 206 649, 419 430), lo que sugiere
-una llave más grande o varios dígitos más. *(Actualizar esta sección con la llave y el texto recuperado en
-cuanto termine la búsqueda; si no termina a tiempo para la entrega, documentar el intento igual — ver
-sección de discusión, pregunta 6.)*
+**Llave encontrada: `18014398509481984` (2^54).** No se llegó por fuerza bruta a ciegas — resultó ser el
+mismo equipo autor del repo de referencia usado para comparar metodologías (Kevin Villagrán/Joel Jaquez),
+quienes confirmaron la llave directamente al preguntarles. Se verificó de dos formas independientes antes
+de darla por buena:
+1. **Verificación propia:** `mpirun -np 2 bruteforce --b64 texto_cifrado.b64 "Open MPI es una" block 55`
+   decodifica el texto completo y legible sobre Open MPI con esa llave exacta.
+2. **Verificación criptográfica cruzada:** se recompiló su propio `cifrar.c` y se cifró su propio texto con
+   esa llave; el resultado coincide byte a byte en 266 de 267 bloques DES-ECB con el ciphertext que
+   publicaron (el único bloque distinto es una diferencia de fin de línea en la copia local del texto, no
+   de la llave) — una coincidencia así en bloques ECB independientes es estadísticamente imposible con una
+   llave incorrecta.
 
-## Validación del pipeline local → clúster (con llave propia conocida)
+La búsqueda a ciegas por fuerza bruta (reparto cíclico, 16 procesos locales) alcanzó a cubrir sin éxito
+las primeras ~300 millones de llaves del espacio completo (2^56) antes de obtener la confirmación directa;
+2^54 ≈ 1.8×10^16 está muy por encima de lo que una búsqueda a ciegas habría cubierto a tiempo para la
+entrega, lo que confirma que preguntar el orden de magnitud (pregunta 6) hubiera ahorrado horas de cómputo.
 
-Antes de tener la llave del grupo cruzado, se validó el camino completo (Ts local → Tp en el clúster con
-Tailscale, ver `docs/09-cluster-tailscale.md`) usando el propio texto y llave de la Parte 1
-(`data/texto.txt`, llave `4206649`, frase `"memoria distribuida"`, espacio reducido a 2^23 para que la
-medición sea repetible, igual que en `docs/06-mediciones.md`). Esto no sustituye el requisito de la Sección
-III (que pide el texto de *otro* equipo), pero confirma que el resto de la metodología funciona:
+## Comparación Ts vs. Tp (grupo cruzado, clúster real con Tailscale)
+
+Con la llave real (`18014398509481984`) y el ciphertext de Kevin/Joel, reparto `block`, espacio completo
+(2^56 bits, el real de DES, sin escalar):
+
+| Corrida | Procesos | Nodos | Tiempo | Speedup | Eficiencia |
+|---|---|---|---|---|---|
+| Local (Ts) | 4 | 1 (maestro) | 0.017601 s | 1.00 | 1.00 |
+| Distribuida (Tp) | 8 | 2 (maestro + compañera, Tailscale, relay DERP Miami) | 1.460849 s | 0.012 | 0.0015 |
+
+**El clúster fue ~83 veces más lento que local, no más rápido.** La razón es la misma que ya anticipó el
+equipo de referencia con su propio hallazgo: con reparto en bloques, 2^54 cae justo al inicio del rango de
+un proceso tanto con 4 como con 8 procesos (`PROC,1,0,...` en Ts y `PROC,2,0,...` en Tp — ambos con
+`tried=0`, la encontraron en el primer intento). El tiempo de cómputo real es despreciable en los dos
+casos; lo que domina en la corrida distribuida es el **arranque de `orted` remoto por SSH** y la
+**sincronización en `MPI_Barrier`/el aviso `MPI_Send` entre nodos a través del relay DERP de Tailscale**
+(~200-300 ms de ida y vuelta medidos con `tailscale ping`, nunca hubo conexión P2P directa). Cuando casi
+todo el "trabajo" es overhead de arranque y mensajería, agregar un segundo nodo solo suma más overhead sin
+nada que paralelizar.
+
+## Validación adicional del pipeline (con llave propia conocida, espacio reducido)
+
+Antes de tener la llave del grupo cruzado, se validó el mismo camino completo (Ts local → Tp en el clúster
+con Tailscale) usando el propio texto y llave de la Parte 1 (`data/texto.txt`, llave `4206649`, frase
+`"memoria distribuida"`, espacio reducido a 2^23 para que la medición sea repetible, igual que en
+`docs/06-mediciones.md`). A diferencia de la comparación de arriba, aquí la llave sí cae en medio del
+espacio de búsqueda real (no al inicio de ningún rango), así que el resultado muestra un caso donde
+distribuir sí ayuda:
 
 | Corrida | Procesos | Nodos | Tiempo | Speedup | Eficiencia |
 |---|---|---|---|---|---|
 | Local (Ts) | 4 | 1 (maestro, vía WSL2/motor nativo) | 18.183062 s | 1.00 | 1.00 |
 | Distribuida (Tp) | 8 | 2 (maestro + 1 compañero, Tailscale) | 10.938858 s | 1.66 | 0.21 |
 
-Nota de medición: la primera corrida de Ts dio 52.28 s por una contaminación de CPU (la búsqueda del grupo
-cruzado corría de fondo saturando los 16 núcleos de la máquina). Se pausó esa búsqueda (`kill -STOP`) antes
-de medir Ts limpio y se reanudó después (`kill -CONT`) — importante dejarlo anotado porque es exactamente
-el tipo de factor externo que puede arruinar una medición de tiempo sin que el código tenga ningún error.
+Nota de medición: la primera corrida de Ts dio 52.28 s por una contaminación de CPU (otra búsqueda corría
+de fondo saturando los 16 núcleos de la máquina). Se pausó esa búsqueda (`kill -STOP`) antes de medir Ts
+limpio y se reanudó después (`kill -CONT`) — importante dejarlo anotado porque es exactamente el tipo de
+factor externo que puede arruinar una medición de tiempo sin que el código tenga ningún error.
 
-Con reparto cíclico y 2^23 llaves de espacio, la eficiencia de 0.21 con 8 procesos es baja comparada con los
-speedups cíclicos de la Parte 1 local (2.3-2.7x con 2 procesos, hasta 17-24x con 16, ver `docs/06-mediciones.md`).
-La diferencia es la latencia de red entre nodos (Tailscale, posiblemente con relay DERP en vez de conexión
-P2P directa) y el arranque de los procesos remotos por SSH, que no existen en una corrida de un solo nodo.
+Comparando ambas tablas: la eficiencia de 0.21 (llave en medio del espacio) contra 0.0015 (llave al borde
+de un rango) muestra lo mismo que ya se documentó en `docs/06-mediciones.md` para la Parte 1 — el resultado
+de un clúster distribuido depende enormemente de *dónde* cae la llave, no solo de cuántos procesos/nodos se
+usen.
 
 ## Discusión (Sección VI del enunciado)
 
@@ -97,9 +127,12 @@ nuestro caso `tailscale0`), eliminando la ambigüedad.
 
 ### 3. Tiempo local vs. clúster físico
 
-Con la llave propia (sección anterior, para validar el pipeline): Ts = 18.18 s (4 procesos, 1 nodo) vs.
-Tp = 10.94 s (8 procesos, 2 nodos), speedup 1.66x. *(Agregar aquí la comparación con la llave real del
-grupo cruzado en cuanto se tenga.)*
+Con la llave real del grupo cruzado (2^54, cae al borde de un rango): Ts = 0.0176 s (1 nodo) vs.
+Tp = 1.4608 s (2 nodos vía Tailscale) — el clúster fue ~83x **más lento**, porque el cómputo real es
+despreciable y domina el overhead de arrancar el proceso remoto por SSH y sincronizar a través del relay
+DERP. Con la llave propia de la Parte 1 (en medio del espacio, no al borde): Ts = 18.18 s vs. Tp = 10.94 s,
+speedup real de 1.66x. La diferencia entre ambos casos es el mejor ejemplo concreto de que el speedup de un
+clúster depende de dónde cae el trabajo útil, no solo de la infraestructura.
 
 ### 4. ¿Qué pasa con 32 procesos MPI en una máquina de 4 núcleos físicos?
 
@@ -133,6 +166,19 @@ degradando también el rendimiento individual de cada uno. Es la misma razón po
 
 ### 6. ¿Se logró el objetivo? ¿Qué fue lo más difícil?
 
-*(Completar con la reflexión final del equipo una vez cerrado el ejercicio, incluyendo si se alcanzó a
-recuperar la llave del grupo cruzado a tiempo o no, y qué se haría distinto la próxima vez — por ejemplo,
-pedir una pista del orden de magnitud de la llave antes de lanzar una búsqueda a ciegas contra todo 2^56.)*
+Sí se logró: se adaptó el programa para leer el ciphertext de otro equipo, se confirmó la llave real
+(`18014398509481984`) con doble verificación (confirmación directa del otro equipo + prueba criptográfica
+independiente), y se corrió la comparación Ts/Tp en un clúster físico real con dos máquinas distintas.
+
+Lo más difícil no fue el código, fue la infraestructura de red: Docker Desktop en Windows resultó no
+compartir la interfaz física con el contenedor (un límite de diseño, no un error de configuración),
+el firewall de la universidad interceptaba TLS y bloqueaba el tráfico de Tailscale, la IP física cambió
+varias veces de sesión a sesión, y la sincronización manual de la llave SSH pública se corrompió repetidas
+veces al pasarla por una app de chat que insertaba espacios al reflowear el texto largo — se resolvió
+hasta que se dejó de pegar la llave a mano y se transmitió como archivo versionado en el repo.
+
+Lo que se haría distinto: pedir desde el principio el orden de magnitud de la llave del equipo cruzado
+(o al menos confirmar si usan el armado de llave original o corregido) antes de lanzar una búsqueda a
+ciegas sobre 2^56 — se gastaron varios minutos de cómputo en balde que se habrían evitado con una pregunta
+directa. También se aprendería a transmitir cualquier dato binario/base64 largo entre compañeros como
+archivo (git, o adjunto) desde el principio, nunca pegado a mano en un chat.
